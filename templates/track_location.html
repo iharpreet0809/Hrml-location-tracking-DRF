@@ -1,0 +1,229 @@
+{% extends 'base.html' %}
+
+{% block title %}Track Location - HRMS{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>Track My Location</h2>
+    <p>Click the button below to record your current GPS location</p>
+</div>
+
+<div class="card" style="margin-bottom: 20px;">
+    <div class="card-body">
+        <h3>Current User Information</h3>
+        <div id="employeeInfo">
+            <p><strong>Employee ID:</strong> <span id="empId">Loading...</span></p>
+            <p><strong>Username:</strong> <span id="empUsername">Loading...</span></p>
+            <p><strong>Email:</strong> <span id="empEmail">Loading...</span></p>
+            <p><strong>Total Locations Tracked:</strong> <span id="empLocationCount">Loading...</span></p>
+        </div>
+    </div>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <button id="trackButton" class="btn btn-primary">
+            <span id="buttonText">Track my location</span>
+            <span id="loadingSpinner" class="spinner" style="display: none;"></span>
+        </button>
+        
+        <div id="messageContainer" style="margin-top: 20px;"></div>
+        
+        <div id="locationInfo" style="display: none; margin-top: 20px;">
+            <h3>Location Details:</h3>
+            <p><strong>Latitude:</strong> <span id="latDisplay"></span></p>
+            <p><strong>Longitude:</strong> <span id="lonDisplay"></span></p>
+            <p><strong>Accuracy:</strong> <span id="accDisplay"></span> meters</p>
+            <p style="font-size: 0.9em; color: #666; margin-top: 10px;">
+                <em>Note: Accuracy shows the GPS uncertainty radius. Lower values mean more precise location. 
+                For best results, ensure GPS is enabled and you're outdoors with clear sky view.</em>
+            </p>
+        </div>
+    </div>
+</div>
+
+<script>
+    // Get CSRF token from cookie
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+    
+    const csrftoken = getCookie('csrftoken');
+    
+    // Load employee information
+    function loadEmployeeInfo() {
+        fetch('/api/employee/', {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'same-origin'
+        })
+        .then(response => response.json())
+        .then(data => {
+            document.getElementById('empId').textContent = data.employee_id;
+            document.getElementById('empUsername').textContent = data.username;
+            document.getElementById('empEmail').textContent = data.email || 'N/A';
+            document.getElementById('empLocationCount').textContent = data.location_count;
+        })
+        .catch(error => {
+            console.error('Error loading employee info:', error);
+            document.getElementById('empId').textContent = 'Error loading';
+        });
+    }
+    
+    // Load employee info on page load
+    loadEmployeeInfo();
+    
+    // Show message to user
+    function showMessage(message, type) {
+        const container = document.getElementById('messageContainer');
+        container.innerHTML = `<div class="alert alert-${type}">${message}</div>`;
+    }
+    
+    // Show location details
+    function showLocationDetails(lat, lon, accuracy) {
+        document.getElementById('latDisplay').textContent = lat.toFixed(7);
+        document.getElementById('lonDisplay').textContent = lon.toFixed(7);
+        document.getElementById('accDisplay').textContent = accuracy.toFixed(2);
+        
+        // Show accuracy quality indicator
+        let accuracyQuality = '';
+        if (accuracy <= 10) {
+            accuracyQuality = ' (Excellent - GPS)';
+        } else if (accuracy <= 50) {
+            accuracyQuality = ' (Good - GPS)';
+        } else if (accuracy <= 100) {
+            accuracyQuality = ' (Fair - WiFi/Cell)';
+        } else {
+            accuracyQuality = ' (Poor - Cell Tower)';
+        }
+        document.getElementById('accDisplay').textContent = accuracy.toFixed(2) + accuracyQuality;
+        
+        document.getElementById('locationInfo').style.display = 'block';
+    }
+    
+    // Set button loading state
+    function setLoading(isLoading) {
+        const button = document.getElementById('trackButton');
+        const buttonText = document.getElementById('buttonText');
+        const spinner = document.getElementById('loadingSpinner');
+        
+        if (isLoading) {
+            button.disabled = true;
+            buttonText.textContent = 'Getting location...';
+            spinner.style.display = 'inline-block';
+        } else {
+            button.disabled = false;
+            buttonText.textContent = 'Track my location';
+            spinner.style.display = 'none';
+        }
+    }
+    
+    // Track location function
+    document.getElementById('trackButton').addEventListener('click', function() {
+        // Check if geolocation is supported
+        if (!navigator.geolocation) {
+            showMessage('Geolocation is not supported by your browser', 'error');
+            return;
+        }
+        
+        setLoading(true);
+        document.getElementById('messageContainer').innerHTML = '';
+        document.getElementById('locationInfo').style.display = 'none';
+        
+        // Get current position
+        navigator.geolocation.getCurrentPosition(
+            // Success callback
+            function(position) {
+                const latitude = position.coords.latitude;
+                const longitude = position.coords.longitude;
+                const accuracy = position.coords.accuracy;
+                
+                // Show location details
+                showLocationDetails(latitude, longitude, accuracy);
+                
+                // Capture exact GPS values with maximum precision
+                // Keep 7 decimal places for coordinates (~1.1cm accuracy)
+                // Keep 2 decimal places for accuracy measurement
+                const roundedLat = parseFloat(latitude.toFixed(7));
+                const roundedLon = parseFloat(longitude.toFixed(7));
+                const roundedAcc = parseFloat(accuracy.toFixed(2));
+                
+                // Send to API
+                fetch('/api/locations/', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-CSRFToken': csrftoken
+                    },
+                    credentials: 'same-origin',
+                    body: JSON.stringify({
+                        latitude: roundedLat,
+                        longitude: roundedLon,
+                        accuracy: roundedAcc
+                    })
+                })
+                .then(response => {
+                    if (!response.ok) {
+                        return response.json().then(err => {
+                            throw new Error(JSON.stringify(err));
+                        });
+                    }
+                    return response.json();
+                })
+                .then(data => {
+                    showMessage('Location tracked successfully!', 'success');
+                    setLoading(false);
+                    // Refresh employee info to update location count
+                    loadEmployeeInfo();
+                })
+                .catch(error => {
+                    console.error('Error:', error);
+                    showMessage('Failed to save location: ' + error.message, 'error');
+                    setLoading(false);
+                });
+            },
+            // Error callback
+            function(error) {
+                setLoading(false);
+                let errorMessage = '';
+                
+                switch(error.code) {
+                    case error.PERMISSION_DENIED:
+                        errorMessage = 'Please enable location access in your browser settings';
+                        break;
+                    case error.POSITION_UNAVAILABLE:
+                        errorMessage = 'Unable to retrieve your location. Please try again';
+                        break;
+                    case error.TIMEOUT:
+                        errorMessage = 'Location request timed out. Please try again';
+                        break;
+                    default:
+                        errorMessage = 'An unknown error occurred while getting your location';
+                        break;
+                }
+                
+                showMessage(errorMessage, 'error');
+            },
+            // Options for maximum GPS accuracy
+            {
+                enableHighAccuracy: true,  // Use GPS instead of WiFi/cell towers
+                timeout: 30000,            // Wait up to 30 seconds for accurate reading
+                maximumAge: 0              // Don't use cached position, get fresh GPS data
+            }
+        );
+    });
+</script>
+{% endblock %}

@@ -1,0 +1,292 @@
+{% extends 'base.html' %}
+
+{% block title %}Location History - HRMS{% endblock %}
+
+{% block content %}
+<div class="page-header">
+    <h2>My Location History</h2>
+    <p>View all your tracked locations</p>
+</div>
+
+<div class="card">
+    <div class="card-body">
+        <div id="loadingMessage" class="alert alert-info">Loading location history...</div>
+        <div id="errorMessage" class="alert alert-error" style="display: none;"></div>
+        <div id="emptyMessage" class="alert alert-warning" style="display: none;">
+            No location records found. Start tracking your location to see history here.
+        </div>
+        
+        <div id="tableContainer" style="display: none;">
+            <!-- Desktop Table View -->
+            <div class="table-responsive">
+                <table class="location-table">
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>Date & Time</th>
+                            <th>Latitude</th>
+                            <th>Longitude</th>
+                            <th>Accuracy (m)</th>
+                            <th>Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody id="locationTableBody">
+                    </tbody>
+                </table>
+            </div>
+            
+            <!-- Mobile Card View -->
+            <div id="locationCardsContainer"></div>
+            
+            <div id="paginationContainer" class="pagination">
+                <button id="prevButton" class="btn btn-secondary" disabled>Previous</button>
+                <span id="pageInfo"></span>
+                <button id="nextButton" class="btn btn-secondary" disabled>Next</button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    let currentPage = 1;
+    let nextPageUrl = null;
+    let previousPageUrl = null;
+    
+    // Get CSRF token from cookie
+    function getCookie(name) {
+        let cookieValue = null;
+        if (document.cookie && document.cookie !== '') {
+            const cookies = document.cookie.split(';');
+            for (let i = 0; i < cookies.length; i++) {
+                const cookie = cookies[i].trim();
+                if (cookie.substring(0, name.length + 1) === (name + '=')) {
+                    cookieValue = decodeURIComponent(cookie.substring(name.length + 1));
+                    break;
+                }
+            }
+        }
+        return cookieValue;
+    }
+    
+    const csrftoken = getCookie('csrftoken');
+    
+    // Format date to readable format
+    function formatDate(dateString) {
+        const date = new Date(dateString);
+        return date.toLocaleString('en-US', {
+            year: 'numeric',
+            month: 'short',
+            day: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+            second: '2-digit'
+        });
+    }
+    
+    // Delete location
+    function deleteLocation(locationId, rowElement) {
+        if (!confirm('Are you sure you want to delete this location record?')) {
+            return;
+        }
+        
+        fetch(`/api/locations/${locationId}/`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRFToken': csrftoken
+            },
+            credentials: 'same-origin'
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to delete location');
+            }
+            // Remove row from table
+            rowElement.remove();
+            
+            // Check if table is empty
+            const tbody = document.getElementById('locationTableBody');
+            if (tbody.children.length === 0) {
+                // Reload the page to fetch new data or show empty state
+                fetchLocations();
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Failed to delete location: ' + error.message);
+        });
+    }
+    
+    // Show error message
+    function showError(message) {
+        document.getElementById('loadingMessage').style.display = 'none';
+        document.getElementById('tableContainer').style.display = 'none';
+        document.getElementById('emptyMessage').style.display = 'none';
+        document.getElementById('errorMessage').textContent = message;
+        document.getElementById('errorMessage').style.display = 'block';
+    }
+    
+    // Show empty state
+    function showEmpty() {
+        document.getElementById('loadingMessage').style.display = 'none';
+        document.getElementById('tableContainer').style.display = 'none';
+        document.getElementById('errorMessage').style.display = 'none';
+        document.getElementById('emptyMessage').style.display = 'block';
+    }
+    
+    // Render location data in table and cards
+    function renderLocations(data) {
+        const tbody = document.getElementById('locationTableBody');
+        const cardsContainer = document.getElementById('locationCardsContainer');
+        tbody.innerHTML = '';
+        cardsContainer.innerHTML = '';
+        
+        if (!data.results || data.results.length === 0) {
+            showEmpty();
+            return;
+        }
+        
+        data.results.forEach((location, index) => {
+            const serialNumber = (currentPage - 1) * 20 + index + 1;
+            
+            // Render table row (desktop)
+            const row = document.createElement('tr');
+            row.innerHTML = `
+                <td>${serialNumber}</td>
+                <td>${formatDate(location.timestamp)}</td>
+                <td>${parseFloat(location.latitude).toFixed(6)}</td>
+                <td>${parseFloat(location.longitude).toFixed(6)}</td>
+                <td>${parseFloat(location.accuracy).toFixed(2)}</td>
+                <td>
+                    <button class="btn btn-danger btn-sm" onclick="deleteLocation(${location.id}, this.parentElement.parentElement)">
+                        Delete
+                    </button>
+                </td>
+            `;
+            tbody.appendChild(row);
+            
+            // Render card (mobile)
+            const card = document.createElement('div');
+            card.className = 'location-card';
+            card.innerHTML = `
+                <div class="location-card-row">
+                    <span class="location-card-label">#</span>
+                    <span class="location-card-value">${serialNumber}</span>
+                </div>
+                <div class="location-card-row">
+                    <span class="location-card-label">Date & Time</span>
+                    <span class="location-card-value">${formatDate(location.timestamp)}</span>
+                </div>
+                <div class="location-card-row">
+                    <span class="location-card-label">Latitude</span>
+                    <span class="location-card-value">${parseFloat(location.latitude).toFixed(6)}</span>
+                </div>
+                <div class="location-card-row">
+                    <span class="location-card-label">Longitude</span>
+                    <span class="location-card-value">${parseFloat(location.longitude).toFixed(6)}</span>
+                </div>
+                <div class="location-card-row">
+                    <span class="location-card-label">Accuracy</span>
+                    <span class="location-card-value">${parseFloat(location.accuracy).toFixed(2)} m</span>
+                </div>
+                <div class="location-card-row">
+                    <button class="btn btn-danger btn-sm" onclick="deleteLocationCard(${location.id}, this.closest('.location-card'))">
+                        Delete
+                    </button>
+                </div>
+            `;
+            cardsContainer.appendChild(card);
+        });
+        
+        // Update pagination
+        nextPageUrl = data.next;
+        previousPageUrl = data.previous;
+        
+        document.getElementById('prevButton').disabled = !previousPageUrl;
+        document.getElementById('nextButton').disabled = !nextPageUrl;
+        document.getElementById('pageInfo').textContent = `Page ${currentPage}`;
+        
+        // Show table
+        document.getElementById('loadingMessage').style.display = 'none';
+        document.getElementById('errorMessage').style.display = 'none';
+        document.getElementById('emptyMessage').style.display = 'none';
+        document.getElementById('tableContainer').style.display = 'block';
+    }
+    
+    // Delete location from card view
+    function deleteLocationCard(locationId, cardElement) {
+        if (!confirm('Are you sure you want to delete this location record?')) {
+            return;
+        }
+        
+        fetch(`/api/locations/${locationId}/`, {
+            method: 'DELETE',
+            headers: {
+                'X-CSRFToken': csrftoken
+            },
+            credentials: 'same-origin'
+        })
+        .then(response => {
+            if (!response.ok) {
+                throw new Error('Failed to delete location');
+            }
+            // Remove card
+            cardElement.remove();
+            
+            // Check if container is empty
+            const cardsContainer = document.getElementById('locationCardsContainer');
+            if (cardsContainer.children.length === 0) {
+                fetchLocations();
+            }
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            alert('Failed to delete location: ' + error.message);
+        });
+    }
+    
+    // Fetch locations from API
+    function fetchLocations(url = '/api/locations/') {
+        fetch(url, {
+            method: 'GET',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            credentials: 'same-origin'
+        })
+        .then(response => {
+            if (!response.ok) {
+                if (response.status === 401 || response.status === 403) {
+                    throw new Error('Please log in to view your location history');
+                }
+                throw new Error('Failed to fetch location history');
+            }
+            return response.json();
+        })
+        .then(data => {
+            renderLocations(data);
+        })
+        .catch(error => {
+            console.error('Error:', error);
+            showError(error.message);
+        });
+    }
+    
+    // Pagination handlers
+    document.getElementById('prevButton').addEventListener('click', function() {
+        if (previousPageUrl) {
+            currentPage--;
+            fetchLocations(previousPageUrl);
+        }
+    });
+    
+    document.getElementById('nextButton').addEventListener('click', function() {
+        if (nextPageUrl) {
+            currentPage++;
+            fetchLocations(nextPageUrl);
+        }
+    });
+    
+    // Load initial data
+    fetchLocations();
+</script>
+{% endblock %}

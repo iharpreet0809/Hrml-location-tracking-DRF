@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{% block title %}HRMS Location Tracking{% endblock %}</title>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'css/style.css' %}">
+</head>
+<body>
+    <nav class="navbar">
+        <div class="container">
+            <h1 class="logo">HRMS Location Tracking</h1>
+            <button class="menu-toggle" id="menuToggle" aria-label="Toggle menu">☰</button>
+            <ul class="nav-links" id="navLinks">
+                <li><a href="{% url 'track_location' %}">Track Location</a></li>
+                <li><a href="{% url 'location_history' %}">Location History</a></li>
+                {% if user.is_authenticated %}
+                    <li><span class="user-info">👤 {{ user.username }}</span></li>
+                    <li><a href="{% url 'employee_logout' %}">Logout</a></li>
+                {% else %}
+                    <li><a href="{% url 'employee_login' %}">Login</a></li>
+                {% endif %}
+            </ul>
+        </div>
+    </nav>
+    
+    <script>
+        // Mobile menu toggle
+        document.getElementById('menuToggle').addEventListener('click', function() {
+            const navLinks = document.getElementById('navLinks');
+            navLinks.classList.toggle('hidden');
+        });
+    </script>
+    
+    <main class="container">
+        {% if messages %}
+            <div style="margin-top: 20px;">
+                {% for message in messages %}
+                    <div class="alert alert-{{ message.tags }}">
+                        {{ message }}
+                    </div>
+                {% endfor %}
+            </div>
+        {% endif %}
+        
+        {% block content %}
+        {% endblock %}
+    </main>
+    
+    <footer>
+        <div class="container">
+            <p>&copy; 2025 HRMS Location Tracking System</p>
+        </div>
+    </footer>
+</body>
+</html>

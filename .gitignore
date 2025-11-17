@@ -1,6 +1,6 @@
 # Environment variables
 .env
-
+.kiro/specs/location-tracking-module
 # Python
 __pycache__/
 *.py[cod]
